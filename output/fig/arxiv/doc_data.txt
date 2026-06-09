@@ -1,0 +1,23 @@
+InfoBegin
+InfoKey: Creator
+InfoValue: TeX
+InfoBegin
+InfoKey: ModDate
+InfoValue: D:20240622070027+01&apos;00&apos;
+InfoBegin
+InfoKey: CreationDate
+InfoValue: D:20240622070027+01&apos;00&apos;
+InfoBegin
+InfoKey: Producer
+InfoValue: pdfTeX-1.40.26
+InfoBegin
+InfoKey: PTEX.Fullbanner
+InfoValue: This is pdfTeX, Version 3.141592653-2.6-1.40.26 (TeX Live 2024/TeX Live for SUSE Linux) kpathsea version 6.4.0
+PdfID0: ddfc4287a31d9b9592fa82bb2dd9ea76
+PdfID1: ddfc4287a31d9b9592fa82bb2dd9ea76
+NumberOfPages: 1
+PageMediaBegin
+PageMediaNumber: 1
+PageMediaRotation: 0
+PageMediaRect: 0 0 616.316 217
+PageMediaDimensions: 616.316 217
