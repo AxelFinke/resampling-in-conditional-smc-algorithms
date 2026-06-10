@@ -6,6 +6,7 @@
 #include <vector>
 #include <RcppArmadillo.h>
 #include "misc.h"
+#include "chopthin.h"
 
 /// Specifiers for various resampling algorithms.
 enum class Resample_type {
@@ -13,10 +14,11 @@ enum class Resample_type {
   RESAMPLE_STRATIFIED,
   RESAMPLE_SYSTEMATIC,
   RESAMPLE_RESIDUAL_MULTINOMIAL,
+  RESAMPLE_CHOPTHIN,
   RESAMPLE_NAIVE_SYSTEMATIC_I,           // WARNING: This induces bias!
   RESAMPLE_NAIVE_RESIDUAL_MULTINOMIAL_I, // WARNING: This induces bias!
-  RESAMPLE_NAIVE_SYSTEMATIC_II,          // WARNING: This induces bias if $N > 2$!
-  RESAMPLE_NAIVE_RESIDUAL_MULTINOMIAL_II // WARNING: This induces bias if $N > 2$!
+  RESAMPLE_NAIVE_SYSTEMATIC_II,          // WARNING: This induces bias if $N > 2$ (assuming $M = N$)!
+  RESAMPLE_NAIVE_RESIDUAL_MULTINOMIAL_II // WARNING: This induces bias if $N > 2$ (assuming $M = N$)!
 
 };
 /// Converts a Resample_type object to a std::string.
@@ -26,6 +28,7 @@ std::string convert_resample_type_to_string(const Resample_type& resample_type) 
     case RESAMPLE_STRATIFIED: return "stratified";
     case RESAMPLE_SYSTEMATIC: return "systematic";
     case RESAMPLE_RESIDUAL_MULTINOMIAL: return "residual_multinomial";
+    case RESAMPLE_CHOPTHIN: return "chopthin";
     case RESAMPLE_NAIVE_SYSTEMATIC_I: return "naive_systematic_i";
     case RESAMPLE_NAIVE_RESIDUAL_MULTINOMIAL_I: return "naive_residual_multinomial_i";
     case RESAMPLE_NAIVE_SYSTEMATIC_II: return "naive_systematic_ii";
@@ -43,6 +46,8 @@ Resample_type convert_string_to_resample_type(const std::string& resample_type) 
     return Resample_type::RESAMPLE_SYSTEMATIC;
   } else if (resample_type == "residual_multinomial") {
     return Resample_type::RESAMPLE_RESIDUAL_MULTINOMIAL;
+  } else if (resample_type == "chopthin") {
+    return Resample_type::RESAMPLE_CHOPTHIN;
   } else if (resample_type == "naive_systematic_i") {
     return Resample_type::RESAMPLE_NAIVE_SYSTEMATIC_I;
   } else if (resample_type == "naive_residual_multinomial_i") {
@@ -68,18 +73,18 @@ namespace resample {
   // a is the index of the ancestor of the current distinguished particle ($a$ in the paper).
 
   /// Efficiently performs stratified inverse-transform sampling.
-  stratified_inverse_transform(
+  void sample_inverse_transform(
     arma::uvec& parent_indices,
     const arma::colvec& W,
     const unsigned int M,
-    const arma::colvec T
+    const arma::colvec& T
   ) {
     parent_indices.set_size(M);
     arma::colvec Q = arma::cumsum(W);
     unsigned int i = 0;
     unsigned int j = 0;
 
-    while (j < M) {
+    while (j < M && i < W.n_elem) {
       if (T(j) <= Q(i)) {
         parent_indices(j) = i;
         ++j;
@@ -103,12 +108,16 @@ namespace resample {
     log_w_tilde.set_size(M);
     log_w_tilde.fill(-std::log(M));
     arma::colvec u = arma::randu<arma::colvec>(M + 1);
-    u = - arma::cumsum(arma::log(u)); // samples from an exponential distribution
+    u = - arma::cumsum(arma::log(u)); // samples from an Exponential(1) distribution
     arma::colvec T = u(arma::span(0, M - 1)) / u(M);
 
-    // arma::colvec T = u.sort(); /// NOTE: rather than sorting, we generate (M+1) exponential RVs and take the cumulative sum of the first M of these divided by the sum of all (M+1) of these! This gives O(max(N, M)) complexity! See, e.g., https://djalil.chafai.net/blog/2014/06/03/back-to-basics-order-statistics-of-exponential-distribution/
+    // NOTE: to avoid the O(N \log(N)) complexity of sorting, we generate (M+1)
+    // exponential RVs and take the cumulative sum of the first M of these
+    // divided by the sum of all (M + 1) of these! This gives O(\max(N, M))
+    // complexity! See, e.g.,
+    // https://djalil.chafai.net/blog/2014/06/03/back-to-basics-order-statistics-of-exponential-distribution/
 
-    stratified_inverse_transform(parent_indices, W, M, T);
+    sample_inverse_transform(parent_indices, W, M, T);
   }
 
   /////////////////////////////////////////////////////////////////////////////
@@ -139,14 +148,14 @@ namespace resample {
     arma::uvec& parent_indices,
     arma::colvec& log_w_tilde,
     const arma::colvec& W,
-    unsigned int M,
+    const unsigned int M,
     const double u // uniform random variable supplied by the user
   ) {
 
     log_w_tilde.set_size(M);
     log_w_tilde.fill(-std::log(M));
-    arma::colvec T = (arma::linspace(0, M - 1, M) + u) / M;
-    stratified_inverse_transform(parent_indices, W, M, T);
+    arma::colvec T = (arma::regspace(0, M - 1) + u) / M;
+    sample_inverse_transform(parent_indices, W, M, T);
   }
   /// Performs systematic resampling.
   void systematic(
@@ -155,7 +164,6 @@ namespace resample {
     const arma::colvec& W,
     const unsigned int M
   ) {
-
     systematic_base(parent_indices, log_w_tilde, W, M, arma::randu());
   }
 
@@ -261,13 +269,13 @@ namespace resample {
     arma::uvec& parent_indices,
     arma::colvec& log_w_tilde,
     const arma::colvec& W,
-    unsigned int M,
+    const unsigned int M,
     const arma::colvec& u // uniform random variables supplied by the user
   ) {
     log_w_tilde.set_size(M);
     log_w_tilde.fill(-std::log(M));
-    arma::colvec T = (arma::linspace(0, M - 1, M) + u) / M;
-    stratified_inverse_transform(parent_indices, W, M, T);
+    arma::colvec T = (arma::regspace(0, M - 1) + u) / M;
+    sample_inverse_transform(parent_indices, W, M, T);
   }
   /// Performs stratified resampling.
   void stratified(
@@ -276,7 +284,7 @@ namespace resample {
     const arma::colvec& W,
     const unsigned int M
   ) {
-    stratified_base(parent_indices, W, M, arma::randu<arma::colvec>(M));
+    stratified_base(parent_indices, log_w_tilde, W, M, arma::randu<arma::colvec>(M));
   }
 
   ////////////////////////////////////////////////////////////////////////////////
@@ -324,7 +332,7 @@ namespace resample {
     arma::colvec& MW,
     arma::uvec& MW_floor,
     const arma::colvec& W,
-    unsigned int M
+    const unsigned int M
   ) {
 
     MW = M * W;
@@ -335,47 +343,36 @@ namespace resample {
     parent_indices_deterministic.set_size(M0);
 
     unsigned int m = 0;
-    unsigned int n = 0;
-    unsigned int l = 0;
-
-    while (m < M0) {
-      l = 0;
-      while (l < MW_floor(n)) {
-        parent_indices_deterministic(m) = n;
-        ++m;
-        ++l;
+    for (unsigned int n = 0; n < W.n_elem; ++n) {
+      for (unsigned int l = 0; l < MW_floor(n); ++l) {
+        parent_indices_deterministic(m++) = n;
       }
-      ++n;
     }
+
     if (M > M0) {
       W_residual = (MW - MW_floor) / M_residual;
     }
   }
 
   /// Performs residual-multinomial resampling.
-  void residual_multinomial_base(
-    arma::uvec& parent_indices,
-    const arma::colvec& W_residual,
-    const unsigned int M_residual,
-    const arma::uvec& parent_indices_deterministic
-  ) {
-    arma::uvec parent_indices_residual;
-    arma::colvec log_w_tilde;
-    multinomial(parent_indices_residual, log_w_tilde, W_residual, M_residual);
-    parent_indices = arma::join_cols(parent_indices_deterministic, parent_indices_residual);
-  }
-  /// Performs residual-multinomial resampling.
   void residual_multinomial(
     arma::uvec& parent_indices,
     arma::colvec& log_w_tilde,
     const arma::colvec& W,
-    unsigned int M
+    const unsigned int M
   ) {
-    arma::colvec W_residual, MW;
+
+    arma::colvec W_residual, MW, log_w_tilde_aux;
+    arma::uvec parent_indices_deterministic, parent_indices_residual, MW_floor;
     unsigned int M_residual;
-    arma::uvec parent_indices_deterministic, MW_floor;
+
     calculate_residual_weights(W_residual, M_residual, parent_indices_deterministic, MW, MW_floor, W, M);
-    residual_multinomial_base(parent_indices, W_residual, M_residual, parent_indices_deterministic);
+    if (M_residual > 0) {
+      multinomial(parent_indices_residual, log_w_tilde_aux, W_residual, M_residual);
+      parent_indices = arma::join_cols(parent_indices_deterministic, parent_indices_residual);
+    } else {
+      parent_indices = parent_indices_deterministic;
+    }
     log_w_tilde.set_size(M);
     log_w_tilde.fill(-std::log(M));
   }
@@ -411,7 +408,7 @@ namespace resample {
       }
 
       if (M_residual > 0) {
-        residualMultinomial(parent_indices_residual, W_residual, M_residual);
+        residual_multinomial(parent_indices_residual, W_residual, M_residual);
       } else {
         parent_indices_residual.set_size(0);
       }
@@ -419,7 +416,7 @@ namespace resample {
     } else {
 
       if (M_residual > 0) {
-        conditionalMultinomial(parent_indices_residual, l, W_residual, M_residual, a);
+        conditional_multinomial(parent_indices_residual, l, W_residual, M_residual, a);
       } else {
         parent_indices_residual.set_size(0);
       }
@@ -428,6 +425,126 @@ namespace resample {
     parent_indices = arma::join_cols(parent_indices_deterministic, parent_indices_residual);
     log_w_tilde.set_size(M);
     log_w_tilde.fill(-std::log(M));
+  }
+
+
+
+
+
+
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Chopthin resampling
+  //////////////////////////////////////////////////////////////////////////////
+
+  /// Performs chopthin resampling.
+  void chopthin(
+    arma::uvec& parent_indices,
+    arma::colvec& log_w_tilde,
+    const arma::colvec& W,
+    const unsigned int M,
+    const double beta // TODO: need to make this an optional argument
+  ) {
+
+    double alpha = find_alpha(W, M, beta);
+    arma::colvec V = h(W, alpha, beta) / M;
+    systematic(parent_indices, log_w_tilde, V, M);
+
+    unsigned int N = W.size();
+    arma::uvec n_offspring(N);
+    n_offspring.zeors();
+    log_w_tilde.set_size(M);
+    for (unsigned int m = 0; m < M; ++m) {
+      unsigned int a = parent_indices(m);
+      n_offspring(a) = n_offspring(a) + 1;
+    }
+    for (unsigned int m = 0; m < M; ++m) {
+      unsigned int a = parent_indices(m);
+      if (W(a) < alpha) {
+        log_w_tilde(m) = alpha
+      } else {
+        log_w_tilde(m) = W(a) / n_offspring(a);
+      }
+    }
+    log_w_tilde = arma::log(log_w_tilde);
+  }
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Conditional chopthin resampling
+  //////////////////////////////////////////////////////////////////////////////
+
+  /// Performs chopthin resampling.
+  void chopthin(
+    arma::uvec& parent_indices,
+    arma::colvec& log_w_tilde,
+    const arma::colvec& W,
+    const unsigned int M,
+    const double beta // TODO: need to make this an optional argument
+  ) {
+
+    double alpha = find_alpha(W, M, beta);
+    arma::colvec V = h(W, alpha, beta) / M;
+    systematic(parent_indices, log_w_tilde, V, M);
+
+    unsigned int N = W.size();
+    arma::uvec n_offspring(N);
+    n_offspring.zeros();
+    log_w_tilde.set_size(M);
+    for (unsigned int m = 0; m < M; ++m) {
+      unsigned int a = parent_indices(m);
+      n_offspring(a) = n_offspring(a) + 1;
+    }
+    for (unsigned int m = 0; m < M; ++m) {
+      unsigned int a = parent_indices(m);
+      if (W(a) < alpha) {
+        log_w_tilde(m) = alpha
+      } else {
+        log_w_tilde(m) = W(a) / n_offspring(a);
+      }
+    }
+    log_w_tilde = arma::log(log_w_tilde);
+  }
+
+
+  /// Performs conditional chopthin resampling.
+  void conditional_chopthin(
+    arma::uvec& parent_indices,
+    unsigned int& k,
+    arma::colvec& log_w_tilde,
+    const arma::colvec& W,
+    const unsigned int M,
+    const unsigned int a,
+    const double beta // TODO: need to make this an optional argument
+  ) {
+
+    double alpha = find_alpha(W, M, beta);
+    arma::colvec V = h(W, alpha, beta) / M;
+
+    if (W(a) < alpha) {
+      conditional_systematic(parent_indices, k, log_w_tilde, V, M, a);
+    } else {
+      systematic(parent_indices, log_w_tilde, V, M);
+      arma::uvec indices = arma::find(parent_indices == a);
+      k = indices(std::floor(arma::randu() * indices.n_elem));
+    }
+
+    unsigned int N = W.size();
+    arma::uvec n_offspring(N);
+    n_offspring.zeros();
+    log_w_tilde.set_size(M);
+    for (unsigned int m = 0; m < M; ++m) {
+      unsigned int a = parent_indices(m);
+      n_offspring(a) = n_offspring(a) + 1;
+    }
+    for (unsigned int m = 0; m < M; ++m) {
+      unsigned int a = parent_indices(m);
+      if (W(a) < alpha) {
+        log_w_tilde(m) = alpha
+      } else {
+        log_w_tilde(m) = W(a) / n_offspring(a);
+      }
+    }
+    log_w_tilde = arma::log(log_w_tilde);
   }
 
 
@@ -445,10 +562,8 @@ namespace resample {
     const unsigned int M,
     const unsigned int a
   ) {
-
+    residual_multinomial(parent_indices, log_w_tilde, W, M);
     k = 0;
-    parent_indices.set_size(M);
-    residualMultinomial(parent_indices, w, M);
     parent_indices(0) = a;
   }
 
@@ -467,11 +582,13 @@ namespace resample {
     const unsigned int a
   ) {
     k = 0;
-    arma::uvec aVec(1);
-    aVec(0) = a;
+    arma::uvec a_vec(1);
+    a_vec(0) = a;
     parent_indices.set_size(M - 1);
-    residualMultinomial(parent_indices, w, M - 1);
-    parent_indices = arma::join_cols(aVec, parent_indices);
+    residual_multinomial(parent_indices, log_w_tilde, W, M - 1);
+    parent_indices = arma::join_cols(a_vec, parent_indices);
+    log_w_tilde.set_size(M);
+    log_w_tilde.fill(-std::log(M));
   }
 
 
@@ -489,9 +606,8 @@ namespace resample {
     const unsigned int M,
     const unsigned int a
   ) {
+    systematic(parent_indices, log_w_tilde, W, M);
     k = 0;
-    parent_indices.set_size(M);
-    systematic(parent_indices, w, M);
     parent_indices(0) = a;
 
   }
@@ -511,11 +627,13 @@ namespace resample {
   ) {
 
     k = 0;
-    arma::uvec aVec(1);
-    aVec(0) = a;
+    arma::uvec a_vec(1);
+    a_vec(0) = a;
     parent_indices.set_size(M - 1);
-    systematic(parent_indices, w, M - 1);
-    parent_indices = arma::join_cols(aVec, parent_indices);
+    systematic(parent_indices, log_w_tilde, W, M - 1);
+    parent_indices = arma::join_cols(a_vec, parent_indices);
+    log_w_tilde.set_size(M);
+    log_w_tilde.fill(-std::log(M));
   }
 
 
