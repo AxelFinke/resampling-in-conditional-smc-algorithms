@@ -84,7 +84,7 @@ namespace resample {
     unsigned int i = 0;
     unsigned int j = 0;
 
-    while (j < M && i < W.n_elem) {
+    while (j < M && i < Q.n_elem) {
       if (T(j) <= Q(i)) {
         parent_indices(j) = i;
         ++j;
@@ -338,9 +338,9 @@ namespace resample {
     MW = M * W;
     MW_floor = arma::conv_to<arma::uvec>::from(arma::floor(MW));
 
-    unsigned int M0 = arma::sum(MW_floor);
-    M_residual = M - M0;
-    parent_indices_deterministic.set_size(M0);
+    unsigned int M_deterministic = arma::sum(MW_floor);
+    M_residual = M - M_deterministic;
+    parent_indices_deterministic.set_size(M_deterministic);
 
     unsigned int m = 0;
     for (unsigned int n = 0; n < W.n_elem; ++n) {
@@ -349,11 +349,33 @@ namespace resample {
       }
     }
 
-    if (M > M0) {
+    if (M_residual > 0) {
       W_residual = (MW - MW_floor) / M_residual;
     }
   }
+  /// Performs residual-multinomial resampling (assuming that the
+  /// residual weights have already been computed.
+  void residual_multinomial_base(
+    arma::uvec& parent_indices,
+    arma::colvec& log_w_tilde,
+    const arma::colvec& W,
+    const unsigned int M,
+    const arma::colvec& W_residual,
+    const unsigned int M_residual,
+    const arma::uvec& parent_indices_deterministic
+  ) {
 
+    arma::colvec log_w_tilde_aux;
+    arma::uvec parent_indices_residual;
+    if (M_residual > 0) {
+      multinomial(parent_indices_residual, log_w_tilde_aux, W_residual, M_residual);
+      parent_indices = arma::join_cols(parent_indices_deterministic, parent_indices_residual);
+    } else {
+      parent_indices = parent_indices_deterministic;
+    }
+    log_w_tilde.set_size(M);
+    log_w_tilde.fill(-std::log(M));
+  }
   /// Performs residual-multinomial resampling.
   void residual_multinomial(
     arma::uvec& parent_indices,
@@ -367,14 +389,7 @@ namespace resample {
     unsigned int M_residual;
 
     calculate_residual_weights(W_residual, M_residual, parent_indices_deterministic, MW, MW_floor, W, M);
-    if (M_residual > 0) {
-      multinomial(parent_indices_residual, log_w_tilde_aux, W_residual, M_residual);
-      parent_indices = arma::join_cols(parent_indices_deterministic, parent_indices_residual);
-    } else {
-      parent_indices = parent_indices_deterministic;
-    }
-    log_w_tilde.set_size(M);
-    log_w_tilde.fill(-std::log(M));
+    residual_multinomial_base(parent_indices, log_w_tilde, W, M, W_residual, M_residual, parent_indices_deterministic);
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -390,16 +405,22 @@ namespace resample {
     const unsigned int M,
     const unsigned int a
   ) {
-    double u = arma::randu();
+
     arma::colvec W_residual, MW;
     unsigned int M_residual, l;
     arma::uvec parent_indices_deterministic, parent_indices_residual, MW_floor;
 
     calculate_residual_weights(W_residual, M_residual, parent_indices_deterministic, MW, MW_floor, W, M);
-    unsigned int M0 = parent_indices_deterministic.size();
+    unsigned int M_deterministic = parent_indices_deterministic.size();
 
-    if (u * MW(a) <= MW_floor(a)) {
+    if (arma::randu() * MW(a) <= MW_floor(a)) {
 
+      residual_multinomial_base(parent_indices, log_w_tilde, W, M, W_residual, M_residual, parent_indices_deterministic);
+
+      /// The following is equivalent to:
+      /// arma::uvec indices = arma::find(parent_indices_deterministic == a);
+      /// k = indices(std::floor(arma::randu() * indices.n_elem));
+      /// but should be slightly more efficient.
       l = arma::as_scalar(arma::randi(1, arma::distr_param(0, static_cast<int>(MW_floor(a) - 1))));
       if (a == 0) {
         k = l;
@@ -407,24 +428,20 @@ namespace resample {
         k = arma::accu(MW_floor(arma::span(0, a - 1))) + l;
       }
 
-      if (M_residual > 0) {
-        residual_multinomial(parent_indices_residual, W_residual, M_residual);
-      } else {
-        parent_indices_residual.set_size(0);
-      }
-
     } else {
 
       if (M_residual > 0) {
-        conditional_multinomial(parent_indices_residual, l, W_residual, M_residual, a);
+        arma::colvec log_w_tilde_aux;
+        conditional_multinomial(parent_indices_residual, l, log_w_tilde_aux, W_residual, M_residual, a);
+        parent_indices = arma::join_cols(parent_indices_deterministic, parent_indices_residual);
       } else {
-        parent_indices_residual.set_size(0);
+        parent_indices = parent_indices_deterministic;
       }
-      k = M0 + l;
+      k = M_deterministic + l;
+      log_w_tilde.set_size(M);
+      log_w_tilde.fill(-std::log(M));
+
     }
-    parent_indices = arma::join_cols(parent_indices_deterministic, parent_indices_residual);
-    log_w_tilde.set_size(M);
-    log_w_tilde.fill(-std::log(M));
   }
 
 
@@ -479,7 +496,7 @@ namespace resample {
     arma::colvec& log_w_tilde,
     const arma::colvec& W,
     const unsigned int M,
-    const double beta // TODO: need to make this an optional argument
+    const double beta
   ) {
 
     double alpha = find_alpha(W, M, beta);
@@ -514,7 +531,7 @@ namespace resample {
     const arma::colvec& W,
     const unsigned int M,
     const unsigned int a,
-    const double beta // TODO: need to make this an optional argument
+    const double beta
   ) {
 
     double alpha = find_alpha(W, M, beta);
@@ -553,7 +570,8 @@ namespace resample {
   //////////////////////////////////////////////////////////////////////////////
 
   /// Performs a naive (and wrong!) version of conditional
-  /// residual-multinomial resampling
+  /// residual-multinomial resampling. Performs standard residual-multinomial
+  /// resampling and then overwrites the first ancestor index.
   void naive_conditional_residual_multinomial_i(
     arma::uvec& parent_indices,
     unsigned int& k,
@@ -571,8 +589,10 @@ namespace resample {
   // Naive (and wrong!) conditional residual-multinomial resampling II
   //////////////////////////////////////////////////////////////////////////////
 
-  /// \brief Performs a naive (and wrong!) version of conditional
-  /// residual-multinomial resampling
+  /// Performs a naive (and wrong!) version of conditional
+  /// residual-multinomial resampling. Sets the reference particle index to 0 and then
+  /// performs standard residual-multinomial resampling for the remaining
+  /// $M - 1$ particles.
   void naive_conditional_residual_multinomial_ii(
     arma::uvec& parent_indices,
     unsigned int& k,
@@ -596,8 +616,9 @@ namespace resample {
   // Naive (and wrong!) conditional systematic resampling I
   ////////////////////////////////////////////////////////////////////////////////
 
-  /// \brief Performs a naive (and wrong!) version of conditional systematic
-  /// systematic resampling.
+  /// Performs a naive (and wrong!) version of conditional systematic
+  /// systematic resampling. Performs standard systematic resampling
+  /// and then overwrites the first ancestor index.
   void naive_conditional_systematic_i(
     arma::uvec& parent_indices,
     unsigned int& k,
@@ -615,8 +636,9 @@ namespace resample {
   // Naive (and wrong!) conditional systematic resampling II
   ////////////////////////////////////////////////////////////////////////////////
 
-  /// \brief Performs a naive (and wrong!) version of conditional systematic
-  /// systematic resampling.
+  /// Performs a naive (and wrong!) version of conditional systematic
+  /// systematic resampling. Sets the reference particle index to 0 and then
+  /// performs standard systematic resampling for the remaining $M - 1$ particles.
   void naive_conditional_systematic_ii(
     arma::uvec& parent_indices,
     unsigned int& k,
@@ -643,7 +665,8 @@ namespace resample {
     arma::colvec& log_w_tilde,
     const arma::colvec& W,
     const unsigned int M,
-    const Resample_type& resample_type
+    const Resample_type& resample_type,
+    const double beta
   ) {
 
     if (resample_type == RESAMPLE_MULTINOMIAL) {
@@ -654,6 +677,8 @@ namespace resample {
       systematic(parent_indices, log_w_tilde, W, M);
     } else if (resample_type == RESAMPLE_RESIDUAL_MULTINOMIAL) {
       residual_multinomial(parent_indices, log_w_tilde, W, M);
+    } else if (resample_type == RESAMPLE_CHOPTHIN) {
+      chopthin(parent_indices, log_w_tilde, W, M, beta);
     } else if (resample_type == RESAMPLE_NAIVE_SYSTEMATIC_I) {
       systematic(parent_indices, log_w_tilde, W, M);
     } else if (resample_type == RESAMPLE_NAIVE_RESIDUAL_MULTINOMIAL_I) {
@@ -673,7 +698,8 @@ namespace resample {
     const arma::colvec& W,
     const unsigned int M,
     const unsigned int a,
-    const Resample_type& resample_type
+    const Resample_type& resample_type,
+    const double beta
   ) {
 
     if (resample_type == RESAMPLE_MULTINOMIAL) {
@@ -684,6 +710,8 @@ namespace resample {
       conditional_systematic(parent_indices, k, log_w_tilde, W, M, a);
     } else if (resample_type == RESAMPLE_RESIDUAL_MULTINOMIAL) {
       conditional_residual_multinomial(parent_indices, k, log_w_tilde, W, M, a);
+    } else if (resample_type == RESAMPLE_RESIDUAL_MULTINOMIAL) {
+      conditional_chopthin(parent_indices, k, log_w_tilde, W, M, a, beta);
     } else if (resample_type == RESAMPLE_NAIVE_SYSTEMATIC_I) {
       naive_conditional_systematic_i(parent_indices, k, log_w_tilde, W, M, a);
     } else if (resample_type == RESAMPLE_NAIVE_RESIDUAL_MULTINOMIAL_I) {

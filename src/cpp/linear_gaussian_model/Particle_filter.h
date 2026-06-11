@@ -20,7 +20,7 @@ std::string convert_path_selection_type_to_string(const Path_selection_type& pat
   }
 }
 /// Converts a string to a Path_selection_type object.
-Path_selection_type convert_string_to_resample_type(const std::string& path_selection_type) {
+Path_selection_type convert_string_to_path_selection_type(const std::string& path_selection_type) {
   if (path_selection_type == "multinomial") {
     return Path_selection_type::ANCESTOR_TRACING;
   } else if (path_selection_type == "stratified") {

@@ -13,187 +13,106 @@ class Results {
 
 public:
 
-  std::vector<unsigned int> data_set_;
-  std::vector<unsigned int> replicate_;
+
   std::vector<int> time_;
   std::vector<int> dimension_;
-  std::vector<bool> use_smoothing_weights_;
+  std::vector<int> iteration_;
+  std::vector<int> replicate_;
   std::vector<std::string> resample_type_;
-  std::vector<std::string> metric_;
+  std::vector<std::string> path_selection_type_;
   std::vector<double> value_;
-
-  unsigned int data_set_current_;
-  unsigned int replicate_current_;
-  int time_current_;
-  int dimension_current_;
-  bool use_smoothing_weights_current_;
-  std::string resample_type_current_;
 
   /// Initialises the vectors.
   void initialise(const unsigned int K) {
-    data_set_.reserve(K);
-    replicate_.reserve(K);
     time_.reserve(K);
     dimension_.reserve(K);
-    use_smoothing_weights_.reserve(K);
+    iteration_.reserve(K);
+    replicate_.reserve(K);
     resample_type_.reserve(K);
-    metric_.reserve(K);
+    path_selection_type_.reserve(K);
     value_.reserve(K);
   }
   /// Stores a value.
-  void store(const std::string& metric, const double value) {
-    data_set_.push_back(data_set_current_);
-    replicate_.push_back(replicate_current_);
-    time_.push_back(time_current_);
-    dimension_.push_back(dimension_current_);
-    use_smoothing_weights_.push_back(use_smoothing_weights_current_);
-    resample_type_.push_back(resample_type_current_);
-    metric_.push_back(metric);
+  void store(
+    const unsigned int time,
+    const unsigned int dimension,
+    const unsigned int iteration,
+    const unsigned int replicate,
+    const string& resample_type,
+    const string& path_selection_type,
+    const double value,
+  ) {
+    time_.push_back(time);
+    dimension_.push_back(dimension);
+    iteration_.push_back(iteration);
+    replicate_.push_back(replicate);
+    resample_type_.push_back(resample_type);
+    path_selection_type_.push_back(path_selection_type);
     value_.push_back(value);
   }
 
 private:
 
 };
-/// Simulation study that runs a particle filter for a given state-space model
-/// multiple times independently -- using a different data set sampled from the
-/// model each time -- for different tuning parameters.
 template <class Model> void run_simulation_study(
   Results& results,
   Model& model,
-  const unsigned int n_data_sets,
-  const unsigned int n_replicates,
   const unsigned int n_particles,
-  const unsigned int n_backward_sampling_particles,
-  const unsigned int n_benchmark_particles,
-  const unsigned int n_benchmark_backward_sampling_particles,
-  const double ess_resampling_threshold,
-  const std::vector<bool>& use_smoothing_weights,
+  const unsigned int n_iterations,
+  const unsigned int n_replicates,
   const std::vector<std::string>& resample_types,
-  const bool model_has_analytical_solution,
-  const bool simulate_data,
-  const bool approximate_filtering_distributions, // should the filtering distributions be approximated?
-  const bool approximate_smoothing_distributions // if false, then we only approximate the filtering distributions
+  const std::vector<std::string>& path_selection_types,
+  const arma::uvec& times_to_store,
+  const arma::uvec& dimensions_to_store, // must be of the same length as times_to_store
+  const double ess_resampling_threshold
 ) {
+
+  if (times_to_store.size() != dimensions_to_store.size()) {
+    std::cout << "Error: times_to_store and dimensions_to_store must be of the same length!" << std::endl;
+  }
 
   unsigned int T = model.get_n_observations();
   unsigned int D = model.get_state_dimension();
   unsigned int N = n_particles;
   unsigned int R = resample_types.size();
-  unsigned int S = use_smoothing_weights.size();
+  unsigned int P = path_selection_types.size();
 
   Particle_filter<Model> pf(model);
+  pf.set_n_particles(n_particles);
+  pf.set_ess_resampling_threshold(ess_resampling_threshold);
 
-  if (approximate_filtering_distributions && approximate_smoothing_distributions) {
-    // total number of values to be stored, i.e., for each simulation and resampling scheme,
-    // we run the particle filter twice -- once with and once without the "smoothing" weights --
-    // and each time we compute, the log-likelihood estimate as well as the MSE, MSE*
-    // and Mahalanobis distance for both the marginal filtering and marginal smoothing
-    // distributions at each time point, where MSE* refers to the mean square error relative
-    // to the true state; and both MSE and MSE* refer to the average across all dimensions.
-    results.initialise(n_replicates * n_data_sets * R * S * (1 + T * 9));
-  } else if (approximate_filtering_distributions && !approximate_smoothing_distributions) {
-    results.initialise(n_replicates * n_data_sets * R * S * (1 + T * 3));
-  } else if (!approximate_filtering_distributions && approximate_smoothing_distributions) {
-    results.initialise(n_replicates * n_data_sets * R * S * (1 + T * 6));
-  } else if (!approximate_filtering_distributions && !approximate_smoothing_distributions) {
-    results.initialise(n_replicates * n_data_sets * R * S);
-  } else {
-    std::cout << "ERROR in approximate_filtering_distributions or approximate_smoothing_distributions!" << std::endl;
-  }
-  results.dimension_current_ = -1;
 
-  arma::mat means_filtering(D, T);
-  arma::mat means_smoothing(D, T);
-  arma::cube variances_filtering(D, D, T);
-  arma::cube variances_smoothing(D, D, T);
-  double log_likelihood;
+  for (const std::string& resample_type : resample_types) {
 
-  for (unsigned int i = 0; i < n_data_sets; ++i) {
+    pf.set_resample_type(convert_string_to_resample_type(resample_type));
 
-    std::cout << "Progress in terms of data sets: " << static_cast<int>(static_cast<double>(i) / n_data_sets * 100) << " %" << std::endl;
-    results.data_set_current_ = i;
+    for (const std::string& path_selection_type : path_selection_types) {
 
-    if (simulate_data) {
-      model.simulate_data();
-    }
+      pf.set_path_selection_type(convert_string_to_path_selection_type(path_selection_type));
 
-    if (model_has_analytical_solution) {
+      for (const unsigned int replicate : arma::regspace<arma::uvec>(0, n_replicates - 1)) {
 
-      log_likelihood = model.evaluate_log_likelihood_and_moments(means_filtering, variances_filtering, means_smoothing, variances_smoothing);
+        pf.run_particle_filter();
+        std::vector<arma::colvec> x = pf.run_ancestor_tracing(); // the reference path
 
-    } else {
-      pf.set_use_smoothing_weights(false);
+        for (const unsigned int iteration : arma::regspace<arma::uvec>(0, n_iterations - 1)) {
 
-      std::cout << "run_simulation_study: run reference PF" << std::endl;
-      pf.run_particle_filter(n_benchmark_particles, 0.9, Resample_type::RESAMPLE_STRATIFIED); // Benchmark particle filter to obtain approximate ground truth
-      log_likelihood = pf.get_log_likelihood_estimate();
-
-      if (approximate_filtering_distributions) {
-        std::cout << "run_simulation_study: estimate true filtering/variances" << std::endl;
-        pf.estimate_moments_filtering(means_filtering, variances_filtering);
-      }
-      if (approximate_smoothing_distributions) {
-        std::cout << "run_simulation_study: run reference PF's backward sampling" << std::endl;
-        pf.run_backward_sampling(n_backward_sampling_particles);
-        std::cout << "run_simulation_study: estimate true smoothing means/variances" << std::endl;
-        pf.estimate_moments_smoothing(means_smoothing, variances_smoothing);
-      }
-
-    }
-
-    for (unsigned int j = 0; j < n_replicates; ++ j) {
-
-      std::cout << "Progress in terms of replicates for the current data set: " << static_cast<int>(static_cast<double>(j) / n_replicates * 100) << " %" << std::endl;
-      results.replicate_current_ = j;
-
-      std::cout << "Benchmark logZ: " << log_likelihood << std::endl;
-
-      for (unsigned int r = 0; r < R; ++r) {
-
-        results.resample_type_current_ = resample_types[r];
-
-        for (unsigned int s = 0; s < S; ++s) { // use smoothing weights (1) or not (0)?
-
-          results.use_smoothing_weights_current_ = use_smoothing_weights[s];
-          pf.set_use_smoothing_weights(use_smoothing_weights[s]);
-          pf.run_particle_filter(N, ess_resampling_threshold, convert_string_to_resample_type(resample_types[r]));
-
-          results.time_current_ = -1;
-
-          std::cout << "Estimated logZ for: " << resample_types[r] << ": " << pf.get_log_likelihood_estimate() << std::endl;
-          results.store("relative_likelihood_estimation_error",  std::expm1(pf.get_log_likelihood_estimate() - log_likelihood));
-
-          if (approximate_filtering_distributions) {
-            for (unsigned int t = 0; t < T; ++t) {
-              results.time_current_ = t;
-              results.store("mse_filtering", pf.compute_mse_filtering(t, means_filtering.col(t)));
-              results.store("mse_star_filtering", pf.compute_mse_filtering(t, model.get_state(t)));
-              results.store("squared_mahalanobis_distance_filtering", pf.compute_squared_mahalanobis_distance_filtering(t, means_filtering.col(t), variances_filtering.slice(t)));
-            }
+          x = pf.run_conditional_particle_filter(x);
+          for (unsigned int k = 0; k < times_to_store.size(); ++k) {
+            unsigned int time = times_to_store(k);
+            unsigned int dimension = dimensions_to_store(k);
+            store(time, dimension, iteration, replicate, resample_type, path_selection_type, x[time](dimension));
           }
 
-          if (approximate_smoothing_distributions) {
-            pf.run_ancestor_tracing();
-
-            for (unsigned int t = 0; t < T; ++t) {
-              results.time_current_ = t;
-              results.store("mse_smoothing_ancestor_tracing", pf.compute_mse_smoothing(t, means_smoothing.col(t)));
-              results.store("mse_star_smoothing_ancestor_tracing", pf.compute_mse_smoothing(t, model.get_state(t)));
-              results.store("squared_mahalanobis_distance_smoothing_ancestor_tracing", pf.compute_squared_mahalanobis_distance_smoothing(t, means_smoothing.col(t), variances_smoothing.slice(t)));
-            }
-
-            pf.run_backward_sampling(n_backward_sampling_particles);
-
-            for (unsigned int t = 0; t < T; ++t) {
-              results.time_current_ = t;
-              results.store("mse_smoothing_backward_sampling", pf.compute_mse_smoothing(t, means_smoothing.col(t)));
-              results.store("mse_star_smoothing_backward_sampling", pf.compute_mse_smoothing(t, model.get_state(t)));
-              results.store("squared_mahalanobis_distance_smoothing_backward_sampling", pf.compute_squared_mahalanobis_distance_smoothing(t, means_smoothing.col(t), variances_smoothing.slice(t)));
-            }
-          }
         }
+
+
       }
+
+    // std::cout << "Progress in terms of resample types: " << static_cast<int>(static_cast<double>(i) / n_data_sets * 100) << " %" << std::endl;
+
+
+
     }
   }
 }

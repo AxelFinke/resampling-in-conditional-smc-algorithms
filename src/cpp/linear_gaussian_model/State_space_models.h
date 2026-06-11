@@ -1,7 +1,7 @@
 #ifndef __STATE_SPACE_MODELS_H
 #define __STATE_SPACE_MODELS_H
 
-#include "helper_functions.h"
+#include "misc.h"
 
 /// A linear-Gaussian state-space model.
 class Linear_gaussian_state_space_model
