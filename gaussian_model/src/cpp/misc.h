@@ -2,13 +2,30 @@
 #define __HELPER_FUNCTIONS_H
 
 #include <time.h>
+#include <RcppArmadillo.h>
 
 /// Global constant needed for evaluating Gaussian densities.
 const double log2pi = std::log(2.0 * M_PI);
-/// Samples a single value from a multinomial distribution (with size $1$)
+/// Samples a single value from a categorical distribution
 /// (i.e. outputs a value in {0, ..., length(W)-1}).
 unsigned int sample_int(const arma::colvec& W) {
-  return arma::as_scalar(arma::find(arma::cumsum(W) >= arma::randu(), 1, "first"));
+  arma::uvec indices = arma::find(arma::cumsum(W) >= arma::randu(), 1, "first");
+  return indices.is_empty() ? W.n_elem - 1 : indices(0);
+}
+/// Calculates the autorocorrelations in the same was as the function acf() in R.
+arma::colvec acf(const arma::colvec& x, unsigned int lag_max) {
+  unsigned int n = x.n_elem;
+  arma::colvec x_centered = x - arma::mean(x);
+
+  double c0 = arma::dot(x_centered, x_centered) / n;  // lag-0 autocovariance (variance)
+
+  arma::colvec rho(lag_max + 1);
+  for (unsigned int k = 0; k <= lag_max; ++k) {
+    double ck = arma::dot(x_centered.head(n - k), x_centered.tail(n - k)) / n;
+    rho(k) = ck / c0;
+  }
+
+  return rho;
 }
 /// Normalise a single distribution in log-space (returns
 /// normalised weights in log space).
@@ -40,16 +57,17 @@ double evaluate_gaussian_density(
 ) {
   unsigned int dx = x.size();
 
-  arma::mat rooti; // inverse root of the covariance matrix
+  arma::mat precision_root; // upper-triangular precision root
 
   if (is_chol) {
-    rooti = arma::inv(arma::trimatl(sigma));
+    precision_root = arma::inv(arma::trimatl(sigma));
   } else {
-    rooti = arma::inv(arma::trimatl(arma::chol(sigma, "lower")));
+    precision_root = arma::inv(arma::trimatl(arma::chol(sigma, "lower")));
   }
-  double rootisum = arma::sum(log(rooti.diag()));
-  double constants = -(static_cast<double>(dx) / 2.0) * log2pi;
-  arma::colvec z = rooti * (x - mean);
+
+  double rootisum = arma::sum(log(precision_root.diag()));
+  double constants = -0.5 * dx * log2pi;
+  arma::colvec z = precision_root.t() * (x - mean);
   double out = constants - 0.5 * arma::sum(z % z) + rootisum;
 
   if (logd) {
@@ -69,16 +87,16 @@ double evaluate_gaussian_density(
 ) {
   unsigned int dx = x.size();
 
-  double rooti; // Inverse root of the covariance matrix
+  double precision_root; // Inverse root of the covariance matrix
 
   if (is_chol) {
-    rooti = 1.0 / sigma;
+    precision_root = 1.0 / sigma;
   } else {
-    rooti = 1.0 / std::sqrt(sigma);
+    precision_root = 1.0 / std::sqrt(sigma);
   }
-  double rootisum = dx * std::log(rooti);
+  double rootisum = dx * std::log(precision_root);
   double constants = -(static_cast<double>(dx) / 2.0) * log2pi;
-  arma::colvec z = rooti * (x - mean);
+  arma::colvec z = precision_root * (x - mean);
   double out = constants - 0.5 * arma::sum(z % z) + rootisum;
 
   if (logd) {
@@ -99,7 +117,7 @@ double run_kalman_filter(
   const arma::mat& B,
   const arma::mat& C,
   const arma::mat& D,
-  const arma::mat& m0,
+  const arma::colvec& m0,
   const arma::mat& C0,
   const arma::mat& y
 )
@@ -145,7 +163,8 @@ double run_kalman_filter(
     CY = C * CP.slice(t) * C.t() + R;
 
     // Update step
-    kg = (arma::solve(CY.t(), C * arma::trans(CP.slice(t)))).t();
+    // kg = (arma::solve(CY.t(), C * arma::trans(CP.slice(t)))).t();
+    kg = arma::solve(CY, C * CP.slice(t)).t();
     mU.col(t)   = mP.col(t)   + kg * (y.col(t) - mY);
     CU.slice(t) = CP.slice(t) - kg * C * CP.slice(t);
 
@@ -177,7 +196,8 @@ void run_kalman_smoother(
 
   for (unsigned int t=T-2; t != static_cast<unsigned>(-1); t--)
   {
-    Ck          = CU.slice(t) * A.t() * arma::inv(CP.slice(t+1));
+    // Ck          = CU.slice(t) * A.t() * arma::inv(CP.slice(t+1));
+    Ck = arma::solve(CP.slice(t + 1), A * CU.slice(t)).t();
     mS.col(t)   = mU.col(t)   + Ck * (mS.col(t+1)   - mP.col(t+1));
     CS.slice(t) = CU.slice(t) + Ck * (CS.slice(t+1) - CP.slice(t+1)) * Ck.t();
   }

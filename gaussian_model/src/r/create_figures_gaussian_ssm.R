@@ -1,14 +1,13 @@
 library("here")
 library("tidyverse")
 library("cowplot")
-source(here("script", "r", "utils.R"))
-
+source(here("shared", "src",  "r", "utils.R"))
 
 resampling_scheme_names <- c(
   "Multinomial",
   "Systematic",
   "Stratified",
-  "Killing",
+  "Chopthin",
   "Resdidual-\nmultinomial",
   "Na\\\"ive\nsystematic I",
   "Na\\\"ive residual-\nmultinomial I",
@@ -55,8 +54,6 @@ observations <- read_rds(file.path(pathToOutput, paste0("observations_", data_na
 
 
 rel_widths_default <- c(1, 0.15)
-  
-
 
 mu <- moments %>% pull(true_mean) %>% .[time_to_plot]
 sigma <-  moments %>% pull(true_var) %>% .[time_to_plot] %>% sqrt()
@@ -85,10 +82,6 @@ df %>%
   labs(x = paste0("State at time $t = ", time_to_plot, "$"), y = "Density", colour = "", alpha = "") +
   guides(colour = guide_legend(override.aes = list(alpha = 1))) +
   facet_grid(cols = vars(group), rows = vars(resample_type)) -> p_gaussian_ssm
-#   theme(
-#     legend.margin = margin(0, -133, 0, 0),
-#     legend.box.margin = margin(2, -133, 2, 2)
-#   ) -> p_gaussian_ssm
 
 
 
@@ -96,20 +89,7 @@ df %>%
 # Export figures
 # ---------------------------------------------------------------------------- #
 
-# l_gaussian_ssm <- get_legend(p_gaussian_ssm)
-# p_gaussian_ssm <- p_gaussian_ssm + theme(legend.position = "none")
-#
-#
-# ggdraw(
-#   plot_grid(
-#     p_gaussian_ssm, l_gaussian_ssm,
-#     ncol = 2, rel_widths = rel_widths_default
-#   )
-# ) -> gaussian_ssm
-
 p_gaussian_ssm %>% save_figure(
-#   width = 6,
-#   height = 6,
   height = height_small,
   fig_name = "gaussian_ssm"
 )

@@ -13,19 +13,19 @@ enum class Path_selection_type {
 /// Converts a Path_selection_type object to a std::string.
 std::string convert_path_selection_type_to_string(const Path_selection_type& path_selection_type) {
   switch(path_selection_type) {
-    case ANCESTOR_TRACING: return "ancestor_tracing";
-    case BACKWARD_SAMPLING: return "backward_sampling";
-    case ANCESTOR_SAMPLING: return "ancestor_sampling";
+    case Path_selection_type::ANCESTOR_TRACING: return "ancestor_tracing";
+    case Path_selection_type::BACKWARD_SAMPLING: return "backward_sampling";
+    case Path_selection_type::ANCESTOR_SAMPLING: return "ancestor_sampling";
     default: return std::string();
   }
 }
 /// Converts a string to a Path_selection_type object.
 Path_selection_type convert_string_to_path_selection_type(const std::string& path_selection_type) {
-  if (path_selection_type == "multinomial") {
+  if (path_selection_type == "ancestor_tracing") {
     return Path_selection_type::ANCESTOR_TRACING;
-  } else if (path_selection_type == "stratified") {
+  } else if (path_selection_type == "backward_sampling") {
     return Path_selection_type::BACKWARD_SAMPLING;
-  } else if (path_selection_type == "systematic") {
+  } else if (path_selection_type == "ancestor_sampling") {
     return Path_selection_type::ANCESTOR_SAMPLING;
   } else {
     std::cout << "WARNING: Path selection type is not implemented!" << std::endl;
@@ -46,8 +46,8 @@ public:
     model_(model)
   {
     ess_resampling_threshold_ = 1.0; // by default, the particle filter resamples at every step
-    resample_type_ = RESAMPLE_STRATIFIED; // by default, the particle filter uses stratified resampling
-    path_selection_type_ = ANCESTOR_TRACING; // by default, the conditional particle filter uses ancestor tracing
+    resample_type_ = Resample_type::STRATIFIED; // by default, the particle filter uses stratified resampling
+    path_selection_type_ = Path_selection_type::ANCESTOR_TRACING; // by default, the conditional particle filter uses ancestor tracing
   }
   /// Specifies the number of particles.
   void set_n_particles(const unsigned int n_particles) {n_particles_ = n_particles;}
@@ -63,7 +63,10 @@ public:
   std::vector<arma::colvec> run_conditional_particle_filter(
     const std::vector<arma::colvec>& x // the current reference path
   );
-
+  /// Performs ancestor tracing to return one particle trajectory;
+  std::vector<arma::colvec> run_ancestor_tracing() const;
+  /// Performs backward sampling to return one particle trajectory;
+  std::vector<arma::colvec> run_backward_sampling() const;
 
 private:
 
@@ -71,16 +74,12 @@ private:
   unsigned int n_particles_;
   double ess_resampling_threshold_;
   Resample_type resample_type_;
-  path_selection_type path_selection_type_;
+  Path_selection_type path_selection_type_;
 
   std::vector<std::vector<arma::colvec>> particles_;
   arma::mat self_normalised_weights_;
   arma::umat parent_indices_;
 
-  /// Performs ancestor tracing to return one particle trajectory;
-  std::vector<arma::colvec> run_ancestor_tracing() const;
-  /// Performs backward sampling to return one particle trajectory;
-  std::vector<arma::colvec> run_backward_sampling() const;
   /// Samples from the backward kernel at time $t$ (given a state from time $t + 1$).
   unsigned int sample_from_backward_kernel(const unsigned int t, const arma::colvec& x) const {
     arma::colvec log_w_aux(n_particles_);
@@ -101,6 +100,10 @@ double Particle_filter<Model>::run_particle_filter() {
   unsigned int T = model_.get_n_observations();
   unsigned int N = n_particles_;
   double log_likelihood_estimate = 0;
+
+
+  // std::cout << "N: " << N << std::endl;
+  // std::cout << "T: " << T << std::endl;
 
   arma::colvec log_observation_densities(N);
   arma::colvec log_unnormalised_weights(N);
@@ -128,7 +131,7 @@ double Particle_filter<Model>::run_particle_filter() {
     double ess = compute_effective_sample_size(self_normalised_weights_.col(t - 1));
 
     if (ess < ess_resampling_threshold_ * N) {
-      resample(parent_indices, log_unnormalised_weights, self_normalised_weights_.col(t - 1), N, resample_type_);
+      resampling::unconditional(parent_indices, log_unnormalised_weights, self_normalised_weights_.col(t - 1), N, resample_type_);
     } else {
       parent_indices = arma::linspace<arma::uvec>(0, N - 1, N);
       log_unnormalised_weights = arma::log(self_normalised_weights_.col(t - 1));
@@ -149,7 +152,7 @@ double Particle_filter<Model>::run_particle_filter() {
 
 /// Runs the conditional particle filter.
 template <class Model>
-std::vector<arma::colvec>& Particle_filter<Model>::run_conditional_particle_filter(
+std::vector<arma::colvec> Particle_filter<Model>::run_conditional_particle_filter(
   const std::vector<arma::colvec>& x // the current reference path
 ) {
 
@@ -171,7 +174,7 @@ std::vector<arma::colvec>& Particle_filter<Model>::run_conditional_particle_filt
   }
 
   std::vector<unsigned int> particle_indices(T); // indices of the reference path
-  particle_indices[0] = arma::randi<int>(arma::distr_param(0, N - 1));
+  particle_indices[0] = arma::as_scalar(arma::randi<arma::uvec>(1, arma::distr_param(0, N - 1)));
 
   // std::cout << "PF: start: sample particles" << std::endl;
   for (unsigned int n = 0; n < N; ++n) {
@@ -193,13 +196,13 @@ std::vector<arma::colvec>& Particle_filter<Model>::run_conditional_particle_filt
       unsigned int k;
       unsigned int a;
 
-      if (path_selection_type_ == ANCESTOR_SAMPLING) {
-        a = particle_indices[t - 1];
-      } else {
+      if (path_selection_type_ == Path_selection_type::ANCESTOR_SAMPLING) {
         a = sample_from_backward_kernel(t - 1, x[t]);
+      } else {
+        a = particle_indices[t - 1];
       }
 
-      conditional_resample(parent_indices, k, log_unnormalised_weights, self_normalised_weights_.col(t - 1), N, a, resample_type_);
+      resampling::conditional(parent_indices, k, log_unnormalised_weights, self_normalised_weights_.col(t - 1), N, a, resample_type_);
       particle_indices[t] = k;
     } else {
       particle_indices[t] = particle_indices[t - 1];
@@ -221,7 +224,7 @@ std::vector<arma::colvec>& Particle_filter<Model>::run_conditional_particle_filt
     self_normalised_weights_.col(t) = arma::exp(normalise_exp(log_unnormalised_weights));
   }
 
-  if (path_selection_type_ == BACKWARD_SAMPLING) {
+  if (path_selection_type_ == Path_selection_type::BACKWARD_SAMPLING) {
     return run_backward_sampling();
   } else {
     return run_ancestor_tracing();
@@ -257,7 +260,6 @@ template <class Model>
 std::vector<arma::colvec> Particle_filter<Model>::run_ancestor_tracing() const {
 
   unsigned int T = model_.get_n_observations();
-  unsigned int N = n_particles_;
   unsigned int b;
 
   std::vector<arma::colvec> x(T);

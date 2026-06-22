@@ -13,6 +13,9 @@ public:
   Linear_gaussian_state_space_model() {
     set_default_model_parameters();
   }
+  /// Returns whether the likelihood and filtering/smoothing distributions have an analytical
+  /// solution in this model.
+  bool has_analytical_solution() const {return true;}
   /// Returns the true latent state at some time $t$.
   arma::colvec get_state(const unsigned int t) const {return states_.col(t);}
   /// Returns the observation at some time $t$.
@@ -58,17 +61,18 @@ public:
     a_.zeros(1);
     c_.zeros(1);
     A_.set_size(1, 1);
-    A_(0, 0) = 0.95;
+    A_(0, 0) = 1;
     B_.set_size(1, 1);
-    B_(0, 0) = 0.5;
+    B_(0, 0) = 1;
     C_.set_size(1, 1);
     C_.ones();
     D_.set_size(1, 1);
     D_.ones();
     m0_.set_size(1);
-    m0_.ones();
+    m0_.zeros();
     C0_.set_size(1, 1);
-    C0_(0, 0) = B_(0, 0) * B_(0, 0) / (1.0 - A_(0, 0) * A_(0, 0));
+    C0_(0, 0) = 1;
+    // C0_(0, 0) = B_(0, 0) * B_(0, 0) / (1.0 - A_(0, 0) * A_(0, 0));
     C0_root_ = arma::chol(C0_, "lower");
     dx_ = A_.n_rows;
     dy_ = C_.n_rows;
@@ -158,6 +162,9 @@ public:
   Stochastic_volatility_model() {
     set_default_model_parameters();
   }
+  /// Returns whether the likelihood and filtering/smoothing distributions have an analytical
+  /// solution in this model.
+  bool has_analytical_solution() const {return false;}
   /// Returns the true latent state at some time $t$.
   arma::colvec get_state(const unsigned int t) const {return states_.col(t);}
   /// Returns the observation at some time $t$.
@@ -272,6 +279,9 @@ public:
   Nonlinear_state_space_model() {
     set_default_model_parameters();
   }
+  /// Returns whether the likelihood and filtering/smoothing distributions have an analytical
+  /// solution in this model.
+  bool has_analytical_solution() const {return false;}
   /// Returns the true latent state at some time $t$.
   arma::colvec get_state(const unsigned int t) const {return states_.col(t);}
   /// Returns the observation at some time $t$.
@@ -394,6 +404,9 @@ public:
   Lorenz_state_space_model() {
     set_default_model_parameters();
   }
+  /// Returns whether the likelihood and filtering/smoothing distributions have an analytical
+  /// solution in this model.
+  bool has_analytical_solution() const {return false;}
   /// Returns the true latent state at some time $t$.
   arma::colvec get_state(const unsigned int t) const {return states_.col(t);}
   /// Returns the observation at some time $t$.

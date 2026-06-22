@@ -15,31 +15,31 @@ Rcpp::List evaluate_naive_conditional_resampling_bias(
   const arma::uvec& n_observations_values,
   const arma::colvec& epsilon_values,
   const arma::colvec& delta_values,
-  const arma::uvec& resample_type_values,
-  const arma::uvec& backward_sampling_type_values
+  const std::vector<std::string>& resample_type_values,
+  const std::vector<std::string>& path_selection_type_values
 ) {
   
- unsigned int M = 
-   n_particles_values.size() * n_observations_values.size() * 
-   epsilon_values.size() * delta_values.size() *
-   resample_type_values.size() * backward_sampling_type_values.size();
+ // unsigned int M =
+ //   n_particles_values.size() * n_observations_values.size() *
+ //   epsilon_values.size() * delta_values.size() *
+ //   resample_type_values.size() * path_selection_type_values.size();
   
- arma::uvec n_particles_full(M);
- arma::uvec n_observations_full(M);
- arma::colvec epsilon_full(M);
- arma::colvec delta_full(M);
- arma::uvec resample_type_full(M); 
- arma::uvec backward_sampling_type_full(M);
- arma::colvec forward_kld_full(M);
- arma::colvec reverse_kld_full(M);
- arma::colvec tvd_full(M);
- arma::colvec autocorrelation_full(M); 
+ std::vector<unsigned int> n_particles_full;
+ std::vector<unsigned int> n_observations_full;
+ std::vector<double> epsilon_full;
+ std::vector<double> delta_full;
+ std::vector<std::string> resample_type_full;
+ std::vector<std::string> path_selection_type_full;
+ std::vector<double> forward_kld_full;
+ std::vector<double> reverse_kld_full;
+ std::vector<double> tvd_full;
+ std::vector<double> autocorrelation_full;
   
  arma::colvec p, log_p; // true (log-)target density
  arma::colvec q, log_q; // (log-)invariant density
  arma::mat P; // transition matrix
  
- unsigned int m = 0;
+ // unsigned int m = 0;
  
  for (const auto& T: n_observations_values) {
    
@@ -60,16 +60,16 @@ Rcpp::List evaluate_naive_conditional_resampling_bias(
 
        for (const auto& N: n_particles_values) {
          for (const auto& resample_type: resample_type_values) {
-           for (const auto& backward_sampling_type: backward_sampling_type_values) {
+           for (const auto& path_selection_type: path_selection_type_values) {
 
-             std::cout << "Loop " << m << " of " << M << std::endl;
+             // std::cout << "Loop " << m << " of " << M << std::endl;
              std::cout <<
              "N: " << N <<
              "; T: " << T <<
              "; epsilon: " << epsilon <<
              "; delta: " << delta <<
              "; resampling scheme: " << resample_type <<
-             "; use backward sampling? " << backward_sampling_type <<
+             "; use backward sampling? " << path_selection_type <<
              std::endl;
              
              evaluate_log_invariant_density(
@@ -77,8 +77,8 @@ Rcpp::List evaluate_naive_conditional_resampling_bias(
                P,
                path_space,
                N,
-               static_cast<ResampleType>(resample_type),
-               static_cast<BackwardSamplingType>(backward_sampling_type),
+               resample_type,
+               path_selection_type,
                epsilon,
                delta
              );
@@ -86,19 +86,19 @@ Rcpp::List evaluate_naive_conditional_resampling_bias(
 
              q = arma::exp(log_q);
 
-             n_particles_full(m) = N;
-             n_observations_full(m) = T;
-             epsilon_full(m) = epsilon;
-             delta_full(m) = delta;
-             resample_type_full(m) = resample_type;
-             backward_sampling_type_full(m) = backward_sampling_type;
+             n_particles_full.push_back(N);
+             n_observations_full.push_back(T);
+             epsilon_full.push_back(epsilon);
+             delta_full.push_back(delta);
+             resample_type_full.push_back(resample_type);
+             path_selection_type_full.push_back(path_selection_type);
 
-             forward_kld_full(m) = compute_kl_divergence(p, q);
-             reverse_kld_full(m) = compute_kl_divergence(q, p);
-             tvd_full(m) = compute_tv_distance(p, q);
-             autocorrelation_full(m) = compute_autocorrelation(q, P, path_space, 0, 1);
+             forward_kld_full.push_back(compute_kl_divergence(p, q));
+             reverse_kld_full.push_back(compute_kl_divergence(q, p));
+             tvd_full.push_back(compute_tv_distance(p, q));
+             autocorrelation_full.push_back(compute_autocorrelation(q, P, path_space, 0, 1));
 
-             m++;
+             // m++;
            }
          }
        }
@@ -107,12 +107,12 @@ Rcpp::List evaluate_naive_conditional_resampling_bias(
  }
    
  return Rcpp::List::create(
-   Rcpp::Named("N") = n_particles_full, 
-   Rcpp::Named("T") = n_observations_full, 
+   Rcpp::Named("n_particles") = n_particles_full,
+   Rcpp::Named("n_observations") = n_observations_full,
    Rcpp::Named("epsilon") = epsilon_full, 
    Rcpp::Named("delta") = delta_full, 
    Rcpp::Named("resample_type") = resample_type_full, 
-   Rcpp::Named("backward_sampling_type") = backward_sampling_type_full,
+   Rcpp::Named("path_selection_type") = path_selection_type_full,
    Rcpp::Named("forward_kld") = forward_kld_full, 
    Rcpp::Named("reverse_kld") = reverse_kld_full,
    Rcpp::Named("tvd") = tvd_full, 

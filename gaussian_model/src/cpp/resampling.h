@@ -4,65 +4,77 @@
 #include <random>
 #include <iostream>
 #include <vector>
+#include <cmath>
 #include <RcppArmadillo.h>
 #include "misc.h"
 #include "chopthin.h"
 
 /// Specifiers for various resampling algorithms.
 enum class Resample_type {
-  RESAMPLE_MULTINOMIAL = 0,
-  RESAMPLE_STRATIFIED,
-  RESAMPLE_SYSTEMATIC,
-  RESAMPLE_RESIDUAL_MULTINOMIAL,
-  RESAMPLE_CHOPTHIN,
-  RESAMPLE_NAIVE_SYSTEMATIC_I,           // WARNING: This induces bias!
-  RESAMPLE_NAIVE_RESIDUAL_MULTINOMIAL_I, // WARNING: This induces bias!
-  RESAMPLE_NAIVE_SYSTEMATIC_II,          // WARNING: This induces bias if $N > 2$ (assuming $M = N$)!
-  RESAMPLE_NAIVE_RESIDUAL_MULTINOMIAL_II // WARNING: This induces bias if $N > 2$ (assuming $M = N$)!
-
+  MULTINOMIAL = 0,
+  STRATIFIED,
+  SYSTEMATIC,
+  RESIDUAL_MULTINOMIAL,
+  CHOPTHIN_BALANCED,
+  CHOPTHIN_BALANCED_REORDERED,
+  CHOPTHIN_2015,
+  CHOPTHIN_2016, // WARNING: This does not have a known valid conditional version
+  NAIVE_SYSTEMATIC_I,           // WARNING: This induces bias!
+  NAIVE_RESIDUAL_MULTINOMIAL_I, // WARNING: This induces bias!
+  NAIVE_SYSTEMATIC_II,          // WARNING: This induces bias if $N > 2$ (assuming $M = N$)!
+  NAIVE_RESIDUAL_MULTINOMIAL_II // WARNING: This induces bias if $N > 2$ (assuming $M = N$)!
 };
 /// Converts a Resample_type object to a std::string.
 std::string convert_resample_type_to_string(const Resample_type& resample_type) {
   switch(resample_type) {
-    case RESAMPLE_MULTINOMIAL: return "multinomial";
-    case RESAMPLE_STRATIFIED: return "stratified";
-    case RESAMPLE_SYSTEMATIC: return "systematic";
-    case RESAMPLE_RESIDUAL_MULTINOMIAL: return "residual_multinomial";
-    case RESAMPLE_CHOPTHIN: return "chopthin";
-    case RESAMPLE_NAIVE_SYSTEMATIC_I: return "naive_systematic_i";
-    case RESAMPLE_NAIVE_RESIDUAL_MULTINOMIAL_I: return "naive_residual_multinomial_i";
-    case RESAMPLE_NAIVE_SYSTEMATIC_II: return "naive_systematic_ii";
-    case RESAMPLE_NAIVE_RESIDUAL_MULTINOMIAL_II: return "naive_residual_multinomial_ii";
+    case Resample_type::MULTINOMIAL: return "multinomial";
+    case Resample_type::STRATIFIED: return "stratified";
+    case Resample_type::SYSTEMATIC: return "systematic";
+    case Resample_type::RESIDUAL_MULTINOMIAL: return "residual_multinomial";
+    case Resample_type::CHOPTHIN_BALANCED: return "chopthin_balanced";
+    case Resample_type::CHOPTHIN_BALANCED_REORDERED: return "chopthin_balanced_reordered";
+    case Resample_type::CHOPTHIN_2015: return "chopthin_2015";
+    case Resample_type::CHOPTHIN_2016: return "chopthin_2016";
+    case Resample_type::NAIVE_SYSTEMATIC_I: return "naive_systematic_i";
+    case Resample_type::NAIVE_RESIDUAL_MULTINOMIAL_I: return "naive_residual_multinomial_i";
+    case Resample_type::NAIVE_SYSTEMATIC_II: return "naive_systematic_ii";
+    case Resample_type::NAIVE_RESIDUAL_MULTINOMIAL_II: return "naive_residual_multinomial_ii";
     default: return std::string();
   }
 }
 /// Converts a string to a Resample_type object.
 Resample_type convert_string_to_resample_type(const std::string& resample_type) {
   if (resample_type == "multinomial") {
-    return Resample_type::RESAMPLE_MULTINOMIAL;
+    return Resample_type::MULTINOMIAL;
   } else if (resample_type == "stratified") {
-    return Resample_type::RESAMPLE_STRATIFIED;
+    return Resample_type::STRATIFIED;
   } else if (resample_type == "systematic") {
-    return Resample_type::RESAMPLE_SYSTEMATIC;
+    return Resample_type::SYSTEMATIC;
   } else if (resample_type == "residual_multinomial") {
-    return Resample_type::RESAMPLE_RESIDUAL_MULTINOMIAL;
-  } else if (resample_type == "chopthin") {
-    return Resample_type::RESAMPLE_CHOPTHIN;
+    return Resample_type::RESIDUAL_MULTINOMIAL;
+  } else if (resample_type == "chopthin_balanced") {
+    return Resample_type::CHOPTHIN_BALANCED;
+  } else if (resample_type == "chopthin_balanced_reordered") {
+    return Resample_type::CHOPTHIN_BALANCED_REORDERED;
+  } else if (resample_type == "chopthin_2015") {
+    return Resample_type::CHOPTHIN_2015;
+  } else if (resample_type == "chopthin_2016") {
+    return Resample_type::CHOPTHIN_2016;
   } else if (resample_type == "naive_systematic_i") {
-    return Resample_type::RESAMPLE_NAIVE_SYSTEMATIC_I;
+    return Resample_type::NAIVE_SYSTEMATIC_I;
   } else if (resample_type == "naive_residual_multinomial_i") {
-    return Resample_type::RESAMPLE_NAIVE_RESIDUAL_MULTINOMIAL_I;
+    return Resample_type::NAIVE_RESIDUAL_MULTINOMIAL_I;
   } else if (resample_type == "naive_systematic_ii") {
-    return Resample_type::RESAMPLE_NAIVE_SYSTEMATIC_II;
+    return Resample_type::NAIVE_SYSTEMATIC_II;
   } else if (resample_type == "naive_residual_multinomial_ii") {
-    return Resample_type::RESAMPLE_NAIVE_RESIDUAL_MULTINOMIAL_II;
+    return Resample_type::NAIVE_RESIDUAL_MULTINOMIAL_II;
   } else {
     std::cout << "WARNING: Resampling scheme is not implemented!" << std::endl;
-    return Resample_type::RESAMPLE_MULTINOMIAL;
+    return Resample_type::MULTINOMIAL;
   }
 }
 
-namespace resample {
+namespace resampling {
 
   // In the following:
   //
@@ -255,7 +267,7 @@ namespace resample {
     const unsigned int a
   ) {
     double u;
-    sample_from_index_distribution_systematic(u, k, W, a);
+    sample_from_index_distribution_systematic(u, k, W, M, a);
     systematic_base(parent_indices, log_w_tilde, W, M, u);
   }
 
@@ -312,7 +324,7 @@ namespace resample {
   ) {
 
     double u0;
-    sample_from_index_distribution_stratified(u0, k, W, a);
+    sample_from_index_distribution_stratified(u0, k, W, M, a);
     arma::colvec u = arma::randu<arma::colvec>(M);
     u(k) = u0;
     stratified_base(parent_indices, log_w_tilde, W, M, u);
@@ -454,116 +466,315 @@ namespace resample {
   // Chopthin resampling
   //////////////////////////////////////////////////////////////////////////////
 
-  /// Performs chopthin resampling.
-  void chopthin(
-    arma::uvec& parent_indices,
-    arma::colvec& log_w_tilde,
-    const arma::colvec& W,
-    const unsigned int M,
-    const double beta // TODO: need to make this an optional argument
-  ) {
-
-    double alpha = find_alpha(W, M, beta);
-    arma::colvec V = h(W, alpha, beta) / M;
-    systematic(parent_indices, log_w_tilde, V, M);
-
-    unsigned int N = W.size();
+  /// Counts the number of offspring implied by the vector of parent indices.
+  arma::uvec count_offspring(const arma::uvec& parent_indices, const unsigned int N) {
     arma::uvec n_offspring(N);
-    n_offspring.zeors();
-    log_w_tilde.set_size(M);
+    unsigned int M = parent_indices.size();
+    n_offspring.zeros();
     for (unsigned int m = 0; m < M; ++m) {
-      unsigned int a = parent_indices(m);
-      n_offspring(a) = n_offspring(a) + 1;
+      unsigned int b = parent_indices(m);
+      n_offspring(b) = n_offspring(b) + 1;
     }
-    for (unsigned int m = 0; m < M; ++m) {
-      unsigned int a = parent_indices(m);
-      if (W(a) < alpha) {
-        log_w_tilde(m) = alpha
-      } else {
-        log_w_tilde(m) = W(a) / n_offspring(a);
-      }
-    }
-    log_w_tilde = arma::log(log_w_tilde);
+    return n_offspring;
   }
 
-  //////////////////////////////////////////////////////////////////////////////
-  // Conditional chopthin resampling
-  //////////////////////////////////////////////////////////////////////////////
+  /// Performs chopthin resampling without yet determining the
+  /// post-resampling weights.
+  void chopthin_base(
+    arma::uvec& parent_indices,
+    arma::colvec& H,
+    double& alpha,
+    const arma::colvec& W,
+    const unsigned int M,
+    const bool reorder_weights,
+    const double beta //= 5.828427
+  ) {
 
-  /// Performs chopthin resampling.
-  void chopthin(
+    alpha = find_alpha(W, M, beta);
+
+    if (reorder_weights) {
+      arma::uvec idx_below = arma::find(W < alpha);
+      arma::uvec idx_above = arma::find(W >= alpha);
+      arma::uvec idx_combined = arma::join_cols(idx_below, idx_above);
+      // arma::colvec W_reordered = W.elem(idx_combined);
+      H = h(W, alpha, beta);
+      arma::colvec V = H.elem(idx_combined) / M;
+      arma::colvec log_w_tilde_aux;
+      arma::uvec b;
+      systematic(b, log_w_tilde_aux, V, M);
+      parent_indices = idx_combined.elem(b);
+    } else {
+      H = h(W, alpha, beta);
+      arma::colvec V = H / M;
+      arma::colvec log_w_tilde_aux;
+      systematic(parent_indices, log_w_tilde_aux, V, M);
+    }
+
+
+    // for (unsigned int m = 0; m < M; ++m) {
+    //   unsigned int b = parent_indices(m);
+    //   if (W(b) < alpha) {
+    //     log_w_tilde(m) = alpha;
+    //   } else {
+    //     log_w_tilde(m) = W(b) / n_offspring(b);
+    //   }
+    // }
+    // log_w_tilde = arma::log(log_w_tilde);
+
+
+  }
+  /// Performs a type of chopthin resampling which is a special case of
+  /// modified-weight resampling (see manuscript).
+  void chopthin_balanced(
     arma::uvec& parent_indices,
     arma::colvec& log_w_tilde,
     const arma::colvec& W,
     const unsigned int M,
+    const double beta = 5.828427
+  ) {
+
+    double alpha;
+    arma::colvec H;
+    chopthin_base(parent_indices, H, alpha, W, M, false, beta);
+
+    log_w_tilde = arma::log(W.elem(parent_indices)) - arma::log(H.elem(parent_indices));
+  }
+  /// Performs a type of chopthin resampling which is a special case of
+  /// modified-weight resampling (see manuscript) but with additional re-ordering
+  /// of the weights prior to resampling.
+  void chopthin_balanced_reordered(
+    arma::uvec& parent_indices,
+    arma::colvec& log_w_tilde,
+    const arma::colvec& W,
+    const unsigned int M,
+    const double beta = 5.828427
+  ) {
+
+    double alpha;
+    arma::colvec H;
+    chopthin_base(parent_indices, H, alpha, W, M, true, beta);
+
+    log_w_tilde = arma::log(W.elem(parent_indices)) - arma::log(H.elem(parent_indices));
+  }
+  /// Performs chopthin resampling from Gandy and Lau (2015), e.g., Version 3 on arXiv.
+  void chopthin_2015(
+    arma::uvec& parent_indices,
+    arma::colvec& log_w_tilde,
+    const arma::colvec& W,
+    const unsigned int M,
+    const double beta = 5.828427
+  ) {
+
+    double alpha;
+    arma::colvec H;
+    chopthin_base(parent_indices, H, alpha, W, M, false, beta);
+
+    unsigned int N = W.size();
+    arma::uvec n_offspring = count_offspring(parent_indices, N);
+
+
+    log_w_tilde.set_size(M);
+    double log_alpha = std::log(alpha);
+    for (unsigned int m = 0; m < M; ++m) {
+      unsigned int b = parent_indices(m);
+      if (W(b) < alpha) {
+        log_w_tilde(m) = log_alpha;
+      } else {
+        log_w_tilde(m) = std::log(W(b)) - std::log(n_offspring(b));
+      }
+    }
+  }
+  /// Performs chopthin resampling from Gandy and Lau (2016), e.g., Version 5 on arXiv.
+  void chopthin_2016(
+    arma::uvec& parent_indices,
+    arma::colvec& log_w_tilde,
+    const arma::colvec& W,
+    const unsigned int M,
+    const double beta = 5.828427
+  ) {
+
+    double alpha;
+    arma::colvec H;
+    chopthin_base(parent_indices, H, alpha, W, M, true, beta);
+
+    unsigned int N = W.size();
+    arma::colvec h_frac(N);
+    h_frac.zeros();
+    double sl = 0.0;
+    for (unsigned int n = 0; n < N; ++n) {
+      if (W(n) >= alpha) {
+        h_frac(n) = H(n) - std::floor(H(n));
+      } else {
+        sl += W(n);
+      }
+    }
+    unsigned int cl = 0;
+    for (unsigned int m = 0; m < M; ++m) {
+      if (W(parent_indices(m)) < alpha) {
+        cl++;
+      }
+    }
+    double zeta = (sl - alpha * cl) / sum(h_frac);
+
+    arma::uvec n_offspring = count_offspring(parent_indices, N);
+
+    log_w_tilde.set_size(M);
+    double log_alpha = std::log(alpha);
+    for (unsigned int m = 0; m < M; ++m) {
+      unsigned int b = parent_indices(m);
+      if (W(b) < alpha) {
+        log_w_tilde(m) = log_alpha;
+      } else {
+        log_w_tilde(m) = std::log(W(b) - zeta * h_frac(b)) - std::log(n_offspring(b));
+      }
+    }
+  }
+
+
+  /// Performs conditional chopthin resampling without yet determining the
+  /// post-resampling weights.
+  void conditional_chopthin_base(
+    arma::uvec& parent_indices,
+    unsigned int& k,
+    arma::colvec& H,
+    double& alpha,
+    const arma::colvec& W,
+    const unsigned int M,
+    const unsigned int a,
+    const bool reorder_weights,
     const double beta
   ) {
 
-    double alpha = find_alpha(W, M, beta);
-    arma::colvec V = h(W, alpha, beta) / M;
-    systematic(parent_indices, log_w_tilde, V, M);
+    alpha = find_alpha(W, M, beta);
 
-    unsigned int N = W.size();
-    arma::uvec n_offspring(N);
-    n_offspring.zeros();
-    log_w_tilde.set_size(M);
-    for (unsigned int m = 0; m < M; ++m) {
-      unsigned int a = parent_indices(m);
-      n_offspring(a) = n_offspring(a) + 1;
-    }
-    for (unsigned int m = 0; m < M; ++m) {
-      unsigned int a = parent_indices(m);
+    if (reorder_weights) {
+
+      arma::uvec idx_below = arma::find(W < alpha);
+      arma::uvec idx_above = arma::find(W >= alpha);
+      arma::uvec idx_combined = arma::join_cols(idx_below, idx_above);
+      // arma::colvec W_reordered = W.elem(idx_combined);
+      H = h(W, alpha, beta);
+      arma::colvec V = H.elem(idx_combined) / M;
+      arma::colvec log_w_tilde_aux;
+      arma::uvec b;
+
+      unsigned int N = W.size();
+      arma::uvec idx_inv(N);
+      for (arma::uword n = 0; n < N; ++n) {
+        idx_inv(idx_combined(n)) = n;
+      }
+
       if (W(a) < alpha) {
-        log_w_tilde(m) = alpha
+        conditional_systematic(b, k, log_w_tilde_aux, V, M, idx_inv(a));
+        parent_indices = idx_combined.elem(b);
       } else {
-        log_w_tilde(m) = W(a) / n_offspring(a);
+        systematic(b, log_w_tilde_aux, V, M);
+        parent_indices = idx_combined.elem(b);
+        arma::uvec indices = arma::find(parent_indices == a);
+        k = indices(std::floor(arma::randu() * indices.n_elem));
+      }
+    } else {
+      H = h(W, alpha, beta);
+      arma::colvec V = H / M;
+      arma::colvec log_w_tilde_aux;
+
+      if (W(a) < alpha) {
+        conditional_systematic(parent_indices, k, log_w_tilde_aux, V, M, a);
+      } else {
+        systematic(parent_indices, log_w_tilde_aux, V, M);
+        arma::uvec indices = arma::find(parent_indices == a);
+        k = indices(std::floor(arma::randu() * indices.n_elem));
       }
     }
-    log_w_tilde = arma::log(log_w_tilde);
+
+
+
+
+
+    // unsigned int N = W.size();
+    // n_offspring.set_size(N);
+    // n_offspring.zeros();
+    // // log_w_tilde.set_size(M);
+    // for (unsigned int m = 0; m < M; ++m) {
+    //   unsigned int b = parent_indices(m);
+    //   n_offspring(b) = n_offspring(b) + 1;
+    // }
+    // for (unsigned int m = 0; m < M; ++m) {
+    //   unsigned int b = parent_indices(m);
+    //   if (W(b) < alpha) {
+    //     log_w_tilde(m) = alpha;
+    //   } else {
+    //     log_w_tilde(m) = W(b) / n_offspring(b);
+    //   }
+    // }
+    // log_w_tilde = arma::log(log_w_tilde);
   }
 
-
-  /// Performs conditional chopthin resampling.
-  void conditional_chopthin(
+  /// Performs the conditional version of a type of chopthin resampling
+  /// which is a special case of modified-weight resampling (see manuscript).
+  void conditional_chopthin_balanced(
     arma::uvec& parent_indices,
     unsigned int& k,
     arma::colvec& log_w_tilde,
     const arma::colvec& W,
     const unsigned int M,
     const unsigned int a,
-    const double beta
+    const double beta = 5.828427
   ) {
 
-    double alpha = find_alpha(W, M, beta);
-    arma::colvec V = h(W, alpha, beta) / M;
+    double alpha;
+    arma::colvec H;
+    conditional_chopthin_base(parent_indices, k, H, alpha, W, M, a, false, beta);
+    log_w_tilde = arma::log(W.elem(parent_indices)) - arma::log(H.elem(parent_indices));
+  }
+  /// Performs the conditional version of a type of chopthin resampling
+  /// which is a special case of modified-weight resampling (see manuscript).
+  void conditional_chopthin_balanced_reordered(
+    arma::uvec& parent_indices,
+    unsigned int& k,
+    arma::colvec& log_w_tilde,
+    const arma::colvec& W,
+    const unsigned int M,
+    const unsigned int a,
+    const double beta = 5.828427
+  ) {
 
-    if (W(a) < alpha) {
-      conditional_systematic(parent_indices, k, log_w_tilde, V, M, a);
-    } else {
-      systematic(parent_indices, log_w_tilde, V, M);
-      arma::uvec indices = arma::find(parent_indices == a);
-      k = indices(std::floor(arma::randu() * indices.n_elem));
-    }
+    double alpha;
+    arma::colvec H;
+    conditional_chopthin_base(parent_indices, k, H, alpha, W, M, a, true, beta);
+    log_w_tilde = arma::log(W.elem(parent_indices)) - arma::log(H.elem(parent_indices));
+  }
+  /// Performs the conditional version of the chopthin resampling scheme from
+  /// Gandy and Lau (2015), e.g., Version 3 on arXiv.
+  void conditional_chopthin_2015(
+    arma::uvec& parent_indices,
+    unsigned int& k,
+    arma::colvec& log_w_tilde,
+    const arma::colvec& W,
+    const unsigned int M,
+    const unsigned int a,
+    const double beta = 5.828427
+  ) {
+
+    double alpha;
+    arma::colvec H;
+    conditional_chopthin_base(parent_indices, k, H, alpha, W, M, a, false, beta);
+    log_w_tilde = arma::log(W.elem(parent_indices)) - arma::log(H.elem(parent_indices));
 
     unsigned int N = W.size();
-    arma::uvec n_offspring(N);
-    n_offspring.zeros();
+    arma::uvec n_offspring = count_offspring(parent_indices, N);
+
     log_w_tilde.set_size(M);
+    double log_alpha = std::log(alpha);
     for (unsigned int m = 0; m < M; ++m) {
-      unsigned int a = parent_indices(m);
-      n_offspring(a) = n_offspring(a) + 1;
-    }
-    for (unsigned int m = 0; m < M; ++m) {
-      unsigned int a = parent_indices(m);
-      if (W(a) < alpha) {
-        log_w_tilde(m) = alpha
+      unsigned int b = parent_indices(m);
+      if (W(b) < alpha) {
+        log_w_tilde(m) = log_alpha;
       } else {
-        log_w_tilde(m) = W(a) / n_offspring(a);
+        log_w_tilde(m) = std::log(W(b)) - std::log(n_offspring(b));
       }
     }
-    log_w_tilde = arma::log(log_w_tilde);
   }
-
 
   //////////////////////////////////////////////////////////////////////////////
   // Naive (and wrong!) conditional residual-multinomial resampling I
@@ -660,65 +871,75 @@ namespace resample {
 
 
   /// Performs resampling.
-  void resample(
+  void unconditional(
     arma::uvec& parent_indices,
     arma::colvec& log_w_tilde,
     const arma::colvec& W,
     const unsigned int M,
-    const Resample_type& resample_type,
-    const double beta
+    const Resample_type& resample_type
   ) {
 
-    if (resample_type == RESAMPLE_MULTINOMIAL) {
+    if (resample_type == Resample_type::MULTINOMIAL) {
       multinomial(parent_indices, log_w_tilde, W, M);
-    } else if (resample_type == RESAMPLE_STRATIFIED) {
+    } else if (resample_type == Resample_type::STRATIFIED) {
       stratified(parent_indices, log_w_tilde, W, M);
-    } else if (resample_type == RESAMPLE_SYSTEMATIC) {
+    } else if (resample_type == Resample_type::SYSTEMATIC) {
       systematic(parent_indices, log_w_tilde, W, M);
-    } else if (resample_type == RESAMPLE_RESIDUAL_MULTINOMIAL) {
+    } else if (resample_type == Resample_type::RESIDUAL_MULTINOMIAL) {
       residual_multinomial(parent_indices, log_w_tilde, W, M);
-    } else if (resample_type == RESAMPLE_CHOPTHIN) {
-      chopthin(parent_indices, log_w_tilde, W, M, beta);
-    } else if (resample_type == RESAMPLE_NAIVE_SYSTEMATIC_I) {
+    } else if (resample_type == Resample_type::CHOPTHIN_BALANCED) {
+      chopthin_balanced(parent_indices, log_w_tilde, W, M);
+    } else if (resample_type == Resample_type::CHOPTHIN_BALANCED_REORDERED) {
+      chopthin_balanced_reordered(parent_indices, log_w_tilde, W, M);
+    } else if (resample_type == Resample_type::CHOPTHIN_2015) {
+      chopthin_2015(parent_indices, log_w_tilde, W, M);
+    } else if (resample_type == Resample_type::CHOPTHIN_2016) {
+      chopthin_2016(parent_indices, log_w_tilde, W, M);
+    } else if (resample_type == Resample_type::NAIVE_SYSTEMATIC_I) {
       systematic(parent_indices, log_w_tilde, W, M);
-    } else if (resample_type == RESAMPLE_NAIVE_RESIDUAL_MULTINOMIAL_I) {
+    } else if (resample_type == Resample_type::NAIVE_RESIDUAL_MULTINOMIAL_I) {
       residual_multinomial(parent_indices, log_w_tilde, W, M);
-    } else if (resample_type == RESAMPLE_NAIVE_SYSTEMATIC_II) {
+    } else if (resample_type == Resample_type::NAIVE_SYSTEMATIC_II) {
       systematic(parent_indices, log_w_tilde, W, M);
-    } else if (resample_type == RESAMPLE_NAIVE_RESIDUAL_MULTINOMIAL_II) {
+    } else if (resample_type == Resample_type::NAIVE_RESIDUAL_MULTINOMIAL_II) {
       residual_multinomial(parent_indices, log_w_tilde, W, M);
     }
   }
 
   /// Performs conditional resampling.
-  void conditional_resample(
+  void conditional(
     arma::uvec& parent_indices,
     unsigned int& k,
     arma::colvec& log_w_tilde,
     const arma::colvec& W,
     const unsigned int M,
     const unsigned int a,
-    const Resample_type& resample_type,
-    const double beta
+    const Resample_type& resample_type
   ) {
 
-    if (resample_type == RESAMPLE_MULTINOMIAL) {
+    if (resample_type == Resample_type::MULTINOMIAL) {
       conditional_multinomial(parent_indices, k, log_w_tilde, W, M, a);
-    } else if (resample_type == RESAMPLE_STRATIFIED) {
+    } else if (resample_type == Resample_type::STRATIFIED) {
       conditional_stratified(parent_indices, k, log_w_tilde, W, M, a);
-    } else if (resample_type == RESAMPLE_SYSTEMATIC) {
+    } else if (resample_type == Resample_type::SYSTEMATIC) {
       conditional_systematic(parent_indices, k, log_w_tilde, W, M, a);
-    } else if (resample_type == RESAMPLE_RESIDUAL_MULTINOMIAL) {
+    } else if (resample_type == Resample_type::RESIDUAL_MULTINOMIAL) {
       conditional_residual_multinomial(parent_indices, k, log_w_tilde, W, M, a);
-    } else if (resample_type == RESAMPLE_RESIDUAL_MULTINOMIAL) {
-      conditional_chopthin(parent_indices, k, log_w_tilde, W, M, a, beta);
-    } else if (resample_type == RESAMPLE_NAIVE_SYSTEMATIC_I) {
+    } else if (resample_type == Resample_type::CHOPTHIN_BALANCED) {
+      conditional_chopthin_balanced(parent_indices, k, log_w_tilde, W, M, a);
+    } else if (resample_type == Resample_type::CHOPTHIN_BALANCED_REORDERED) {
+      conditional_chopthin_balanced(parent_indices, k, log_w_tilde, W, M, a);
+    } else if (resample_type == Resample_type::CHOPTHIN_2015) {
+      conditional_chopthin_2015(parent_indices, k, log_w_tilde, W, M, a);
+    } else if (resample_type == Resample_type::CHOPTHIN_2016) {
+      std::cout << "ERROR: It is not (yet) known whether the version of chopthin resampling from Gandy & Lau (2016) admits a valid conditional version! Hence, no conditional version is implemented!" << std::endl;
+    } else if (resample_type == Resample_type::NAIVE_SYSTEMATIC_I) {
       naive_conditional_systematic_i(parent_indices, k, log_w_tilde, W, M, a);
-    } else if (resample_type == RESAMPLE_NAIVE_RESIDUAL_MULTINOMIAL_I) {
+    } else if (resample_type == Resample_type::NAIVE_RESIDUAL_MULTINOMIAL_I) {
       naive_conditional_residual_multinomial_i(parent_indices, k, log_w_tilde, W, M, a);
-    } else if (resample_type == RESAMPLE_NAIVE_SYSTEMATIC_II) {
+    } else if (resample_type == Resample_type::NAIVE_SYSTEMATIC_II) {
       naive_conditional_systematic_ii(parent_indices, k, log_w_tilde, W, M, a);
-    } else if (resample_type == RESAMPLE_NAIVE_RESIDUAL_MULTINOMIAL_II) {
+    } else if (resample_type == Resample_type::NAIVE_RESIDUAL_MULTINOMIAL_II) {
       naive_conditional_residual_multinomial_ii(parent_indices, k, log_w_tilde, W, M, a);
     }
   }
