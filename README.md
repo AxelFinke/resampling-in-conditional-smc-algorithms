@@ -1,7 +1,8 @@
 # Resampling in Conditional SMC Algorithms
 
-Code for reproducing the results in the paper "Resampling in Conditional SMC Algorithms" by Axel Finke, Adam M. Johansen, Anthony Lee, and Lawrence M. Murray.
+Code for reproducing the results in the paper "Resampling in Conditional SMC Algorithms" by Axel Finke, Adam M. Johansen, Anthony Lee, and Lawrence M. Murray. 
 
+This repository further contains functionality for implementing a number of other resampling schemes (e.g., stratified resampling as well as various versions of Chopthin resampling) as well as their conditional analogues whose results are not currently shown in the paper.
 
 
 ## Reference
