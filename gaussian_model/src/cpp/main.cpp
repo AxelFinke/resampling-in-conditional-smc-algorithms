@@ -1,12 +1,26 @@
+// Copyright (C) 2026 Axel Finke
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+
 #include <RcppArmadillo.h>
 
 #include "State_space_models.h"
 #include "simulation_study.h"
 
-// Enable C++14 via this plugin
-// [[Rcpp::plugins("cpp14")]]
-
-
+// Enable C++17 via this plugin
+// [[Rcpp::plugins("cpp17")]]
 
 ////////////////////////////////////////////////////////////////////////////////
 // Performs resampling for a number of different resampling schemes.
@@ -17,12 +31,8 @@
 Rcpp::List resample(
   const arma::colvec& normalised_weights, // original normalised weights
   const unsigned int n_resampled_particles, // number of resampled particles
-  const std::string& str_resample_type // resampling scheme (e.g., "multinomial", "stratified", "systematic")
+  const std::string& str_resample_type // resampling scheme (e.g., "multinomial", "stratified", "systematic", "residual_multinomial", ...)
 ) {
-
-  /// (default) parameter for controlling the ratio of the
-  /// resampled weights in chopthin resampling.
-  // double beta = args.containsElementNamed("beta") ? (double)args["beta"] : 5.828427;
 
   arma::uvec parent_indices;
   arma::colvec log_resampled_weights;
@@ -51,10 +61,8 @@ Rcpp::List conditional_resample(
   const arma::colvec& normalised_weights, // original normalised weights
   const unsigned int n_resampled_particles, // number of resampled particles
   const unsigned int single_parent_index, // the single parent index upon which we condition
-  const std::string& str_resample_type // resampling scheme ("multinomial", "stratified", "systematic")
+  const std::string& str_resample_type // resampling scheme ("multinomial", "stratified", "systematic", ...)
 ) {
-
-  // double beta = args.containsElementNamed("beta") ? (double)args["beta"] : 5.828427;
 
   arma::uvec parent_indices;
   arma::colvec log_resampled_weights;
@@ -269,9 +277,4 @@ Rcpp::List run_simulation_study_csmc_acf_linear_gaussian_state_space_model(
     Rcpp::Named("acf") = results.acf_
   );
 }
-
-
-
-
-
 

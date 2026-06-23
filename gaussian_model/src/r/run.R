@@ -1,6 +1,18 @@
-cd "/home/axel/code/resampling-in-conditional-smc-algorithms"
+# Copyright (C) 2026 Axel Finke
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-R
 
 library("tidyverse")
 library("magrittr")
@@ -21,93 +33,6 @@ out_path <- here("gaussian_model", "out")
 
 recompute_results <- FALSE
 recompute_figures <- TRUE
-
-
-
-
-# Comparing the performance of standard "unconditional" resampling schemes
-# --------------------------------------------------------------------------- #
-
-if (recompute_results) {
-
-  set.seed(rng_seed)
-
-  n_data_sets <- 10^6
-  n_observations <- 5
-  n_replicates <- 1
-  n_particles_vec <- c(1000)
-
-  run_simulation_study_smc_linear_gaussian_state_space_model(
-    n_data_sets = n_data_sets,
-    n_observations = n_observations,
-    n_replicates = n_replicates,
-    n_particles_vec = n_particles_vec,
-    ess_resampling_thresholds = c(1.0),
-    resample_types = c(
-      "multinomial",
-      "stratified",
-      "systematic",
-      "residual_multinomial",
-      "chopthin_balanced",
-      "chopthin_balanced_reordered",
-      "chopthin_2015",
-      "chopthin_2016"
-    ),
-    n_benchmark_particles = 0,
-    rng_seed = rng_seed
-  ) %>% as_tibble() -> performance_of_resampling_tbl
-
-  performance_of_resampling_tbl %>% write_rds(
-    file.path(
-      out_path,
-      paste0(
-        "performance_of_resampling_",
-        "_n_data_sets_" , n_data_sets,
-        "_n_observations_", n_observations,
-        "_n_replicates_", n_replicates ,
-        "_n_particles_vec_", n_particles_vec,
-        "_seed_", rng_seed,
-        ".Rds"
-      )
-    )
-  )
-}
-
-if (recompute_figures) {
-
-  read_rds(
-    file.path(
-      out_path, "performance_of_resampling_n_data_sets_1e+06_n_observations_5_n_replicates_1_n_particles_vec_1000_seed_1.Rds"
-    )
-  ) %>%
-    mutate(
-      resample_type = factor(
-        resample_type,
-        levels = resample_type_levels,
-        labels = resample_type_labels
-      )
-    ) %>%
-    mutate(error = abs(relative_likelihood_estimate - 1)) %>%
-  #   mutate(error = (relative_likelihood_estimate - 1)^2) %>%
-    group_by(resample_type, n_particles, ess_resampling_threshold) %>%
-    summarise(mean = mean(error), sd = sd(error), se = sd / sqrt(n())) %>%
-    ungroup() %>%
-    ggplot(mapping = aes(x = resample_type, y = mean)) +
-    geom_col() + #(width = 0.7) +
-    geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0.2) +
-  #   facet_grid(n_particles ~ ess_resampling_threshold) +
-  #   geom_hline(yintercept = 1) +
-    coord_cartesian(ylim = c(0.06, 0.0675)) +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
-    theme_classic() +
-    labs(x = NULL, y = "Mean-absolute error")
-
-
-
-
-
-
-}
 
 
 
@@ -224,10 +149,103 @@ if (recompute_results) {
 
 
 
+# Comparing the performance of standard "unconditional" resampling schemes
+# NOTE: This is currently not shown in the paper.
+# --------------------------------------------------------------------------- #
+
+if (recompute_results) {
+
+  set.seed(rng_seed)
+
+  n_data_sets <- 10^6
+  n_observations <- 5
+  n_replicates <- 1
+  n_particles_vec <- c(1000)
+
+  run_simulation_study_smc_linear_gaussian_state_space_model(
+    n_data_sets = n_data_sets,
+    n_observations = n_observations,
+    n_replicates = n_replicates,
+    n_particles_vec = n_particles_vec,
+    ess_resampling_thresholds = c(1.0),
+    resample_types = c(
+      "multinomial",
+      "stratified",
+      "systematic",
+      "residual_multinomial",
+      "chopthin_balanced",
+      "chopthin_balanced_reordered",
+      "chopthin_2015",
+      "chopthin_2016"
+    ),
+    n_benchmark_particles = 0,
+    rng_seed = rng_seed
+  ) %>% as_tibble() -> performance_of_resampling_tbl
+
+  performance_of_resampling_tbl %>% write_rds(
+    file.path(
+      out_path,
+      paste0(
+        "performance_of_resampling_",
+        "_n_data_sets_" , n_data_sets,
+        "_n_observations_", n_observations,
+        "_n_replicates_", n_replicates ,
+        "_n_particles_vec_", n_particles_vec,
+        "_seed_", rng_seed,
+        ".Rds"
+      )
+    )
+  )
+}
+
+if (recompute_figures) {
+
+  read_rds(
+    file.path(
+      out_path, "performance_of_resampling_n_data_sets_1e+06_n_observations_5_n_replicates_1_n_particles_vec_1000_seed_1.Rds"
+    )
+  ) %>%
+    mutate(
+      resample_type = factor(
+        resample_type,
+        levels = resample_type_levels,
+        labels = resample_type_labels
+      )
+    ) %>%
+    mutate(error = abs(relative_likelihood_estimate - 1)) %>%
+  #   mutate(error = (relative_likelihood_estimate - 1)^2) %>%
+    group_by(resample_type, n_particles, ess_resampling_threshold) %>%
+    summarise(mean = mean(error), sd = sd(error), se = sd / sqrt(n())) %>%
+    ungroup() %>%
+    ggplot(mapping = aes(x = resample_type, y = mean)) +
+    geom_col() + #(width = 0.7) +
+    geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0.2) +
+  #   facet_grid(n_particles ~ ess_resampling_threshold) +
+  #   geom_hline(yintercept = 1) +
+    coord_cartesian(ylim = c(0.06, 0.0675)) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+    theme_classic() +
+    labs(x = NULL, y = "Mean-absolute error")
+
+
+
+
+
+
+}
+
+
+
+
+
+
+
+
+
 
 
 # Autocorrelation of the CSMC chain for different (conditional) resampling
-# schemes
+# schemes. NOTE: This is currently not shown in the paper.
 # --------------------------------------------------------------------------- #
 
 
