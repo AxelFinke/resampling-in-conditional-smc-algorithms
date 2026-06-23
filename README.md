@@ -1,6 +1,8 @@
 # Resampling in Conditional SMC Algorithms
 
-Code for reproducing the results in the paper "Resampling in Conditional SMC Algorithms".
+Code for reproducing the results in the paper "Resampling in Conditional SMC Algorithms" by Axel Finke, Adam M. Johansen, Anthony Lee, and Lawrence M. Murray.
+
+
 
 ## Reference
 
